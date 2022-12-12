@@ -1,3 +1,44 @@
 {
-    "users": []
+    "users": [
+        {
+            "name": "6F0A",
+            "password": "310101",
+            "permissions": "rw"
+        },
+        {
+            "name": "6C03F8",
+            "password": "310101",
+            "permissions": "rw"
+        },
+        {
+            "name": "610DF3",
+            "password": "39F7",
+            "permissions": "rw"
+        },
+        {
+            "name": "610D00",
+            "password": "39F7",
+            "permissions": "rw"
+        },
+        {
+            "name": "6906FE",
+            "password": "310101",
+            "permissions": "rw"
+        },
+        {
+            "name": "690C04F7",
+            "password": "310101",
+            "permissions": "rw"
+        },
+        {
+            "name": "610CF406FEFC0BF5",
+            "password": "3300",
+            "permissions": "rw"
+        },
+        {
+            "name": "70FF01F1",
+            "password": "6EFBFA0C",
+            "permissions": "rw"
+        }
+    ]
 }

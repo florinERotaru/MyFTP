@@ -11,6 +11,14 @@
 #include <signal.h>
 extern int errno;
 
+/* signal */
+#define USER_EXSTS 10
+#define USER_VALID 11
+#define SGNUP_SUCC 12
+#define INCRCT_DATA 13
+#define LOGIN_SUCC 14
+
+
 /* sizes */
 #define CMD_SIZE 100
 #define LGN_SIZE 100
@@ -30,6 +38,18 @@ extern int errno;
 #define SERVER_DOWN -2
 
 
+const char* Encode(const char* decrypted_msg)
+{
+    char *encrypted_message=(char*)calloc(strlen(decrypted_msg)*2, sizeof(char));
+    sprintf(&encrypted_message[0], "%02X", decrypted_msg[0]);
+    for(int i=1; i<strlen(decrypted_msg); i++)
+    {
+        char byte[3];
+        sprintf(byte, "%02X", (unsigned char) (decrypted_msg[i] - decrypted_msg[i-1]));
+        strcat(encrypted_message, byte);
+    }
+    return encrypted_message;
+}  
 
 int ValidatePassword(const char* password)
 {
@@ -55,7 +75,18 @@ int ValidateUsername(const char* username, int sd)
         return -1;
     }
 
-    return 0;
+    int signal;
+    read(sd, &signal, sizeof(int));
+
+    /* user exists */
+    if (signal == USER_EXSTS) 
+    {
+        printf("~~~Username is taken.\n");
+        return -1;
+
+    }
+    if (signal == USER_VALID)
+        return 0;
 }
 
 
@@ -90,18 +121,7 @@ int GetUsername( char* login_command, char username[LGN_SIZE])
     return 0;
 }
 
-const char* Encode(const char* decrypted_msg)
-{
-    char *encrypted_message=(char*)calloc(strlen(decrypted_msg)*2, sizeof(char));
-    sprintf(&encrypted_message[0], "%02X", decrypted_msg[0]);
-    for(int i=1; i<strlen(decrypted_msg); i++)
-    {
-        char byte[3];
-        sprintf(byte, "%02X", (unsigned char) (decrypted_msg[i] - decrypted_msg[i-1]));
-        strcat(encrypted_message, byte);
-    }
-    return encrypted_message;
-}   
+ 
 void read_input(char* buffer, int size)
 {
     fgets(buffer, size, stdin);
@@ -121,18 +141,18 @@ void check_server_state(int sd)
 {
     if (recv(sd, NULL, 1,  MSG_PEEK | MSG_DONTWAIT) == 0)
     {
-        printf("~~~Server is down \n");
+        perror("~~~Server is down(r) \n");
         exit(1);
     }
 } /* checks when reading */
 
 void sigpipe_handler()
 {
-    printf("~~~Server is Down.\n");
+    printf("~~~Server is Down(w)\n");
     exit(1);
 } /* checks when writing */
 
-int HandleLogin(int sd, char* command)
+int HandleLogin(int sd, char* command, char* res_username)
 {
     check_server_state(sd);
     char username[USER_INFO_SIZE];
@@ -167,7 +187,22 @@ int HandleLogin(int sd, char* command)
         printf("Unable to Receive Requests. \n");
         return -1;
     }
-    return 0;
+
+    int signal;
+    read(sd, &signal, sizeof(int));
+    if (signal == INCRCT_DATA)
+    {
+        printf("~~~Wrong login or password \n");
+        return -1;
+    }
+    if (signal == LOGIN_SUCC)
+    {
+        printf("~~~User logged in successfully \n");
+        strcpy(res_username, username);
+        return 0;
+    }
+    printf("%d \n", signal);
+    return -1;
 }
 
 int confirm_password(const char *pas1, const char *pas2)
@@ -179,17 +214,17 @@ int confirm_password(const char *pas1, const char *pas2)
     }
     return 0;
 }
-int HandleSignup(int sd)
+int HandleSignup(int sd, char* final_username)
 {
     check_server_state(sd);
-
+    SendCommand(sd, SIGNUP_REQ);
     char username[USER_INFO_SIZE];
     do
     {
         printf("Set Username:"); fflush(stdout);
         read_input(username, USER_INFO_SIZE);
-    } while (ValidateUsername(username) == -1);
-
+    } while (ValidateUsername(username, sd) == -1);
+    strncpy(final_username, username, USER_INFO_SIZE);
     char password[USER_INFO_SIZE];
     char second_password[USER_INFO_SIZE];
     do 
@@ -205,6 +240,12 @@ int HandleSignup(int sd)
     }while ( (confirm_password(password, second_password)) == -1);    
      /* account data validated */
 
+    write(sd, Encode(password), USER_HASH_SIZE);
+
+    int signal;
+    read(sd, &signal, sizeof(int));
+    if(signal==SGNUP_SUCC)
+        printf("~~~Account created.\n");
 
     return 0;
 }
@@ -252,17 +293,29 @@ int main(int argc, char* argv[])
         if (strstr(command, "login"))
         {
              /* user wants to log in*/
-            int code=HandleLogin(sd, command);
+            //int CONNECTED;
+            //printf("starting to read \n");
+            //read(sd, &CONNECTED, sizeof(int));
+            // if (CONNECTED == 1)
+            // {
+            //     printf("~~User already logged in.\n");
+            //     continue;
+            // }
+            char username[USER_INFO_SIZE];
+            int code=HandleLogin(sd, command, username);
             if (code == -1)
                 continue;
+            strcpy(client, username);
             continue;
         }
 
         if (strcmp(command, "sign up") ==0
             || strcmp(command," sign up ")==0)
         {
-            if (HandleSignup(sd) == -1)
+            char username[USER_INFO_SIZE];
+            if (HandleSignup(sd, username) == -1)
                 continue;
+            strcpy(client, username);
             continue;
         }
 
@@ -270,7 +323,8 @@ int main(int argc, char* argv[])
             || strcmp(command,"quit ")==0)
         {
             SendCommand(sd, QUIT);
-            exit(1) ;
+            close(sd);
+            return 0;
         }
     }
 
