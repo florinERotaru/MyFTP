@@ -32,6 +32,9 @@ extern int errno;
 #define UPLOAD_REQ 3
 #define QUIT 4
 #define SIGNUP_REQ 5
+#define DISCON 6
+#define LOGIN_INTRP 7
+#define LOGIN_CONT 8
 
 
 /* error codes */
@@ -148,34 +151,47 @@ void check_server_state(int sd)
 
 void sigpipe_handler()
 {
-    printf("~~~Server is Down(w)\n");
+    perror("~~~Server is Down(w)\n");
     exit(1);
 } /* checks when writing */
 
 int HandleLogin(int sd, char* command, char* res_username)
 {
-    check_server_state(sd);
-    char username[USER_INFO_SIZE];
-    if(GetUsername(command, username) == -1)
-    {
-        printf("syntax error - login syntax: login <username> \n");
-        return -1;
-    }
     if (SendCommand(sd, LOGIN_REQ) == -1)
     {
         printf("Server is Down \n");
         return SERVER_DOWN;
     }
+    int CONNECTED;
+    read(sd, &CONNECTED, sizeof(int));
+    if (CONNECTED == 1)
+    {
+        printf("~~User already logged in. ('sign out' first) \n");
+        return 1;
+    }
+    char username[USER_INFO_SIZE];
+    int cmd=LOGIN_INTRP;
+    if(GetUsername(command, username) == -1)
+    {
+        printf("syntax error - login syntax: login <username> \n");
+        write(sd, &cmd, sizeof(int));
+        return -1;
+    }
+    
+    
     char password[USER_INFO_SIZE];
     printf("Enter password: "); fflush(stdout);
     read_input(password, USER_INFO_SIZE);
     if(ValidatePassword(password) == -1)
     {
+        cmd=LOGIN_INTRP;
+        write(sd, &cmd, sizeof(int));
         return -1;
     }
+    cmd=LOGIN_CONT;
+    write(sd, &cmd, sizeof(int));
 
     /* send user data to server */
-
     if( write(sd, Encode(username), USER_HASH_SIZE) <=0 )
     {
         printf("Unable to Receive Requests. \n");
@@ -214,10 +230,35 @@ int confirm_password(const char *pas1, const char *pas2)
     }
     return 0;
 }
+int Handle_ls(int sd)
+{
+    SendCommand(sd, INSPECT_REQ);
+    int CONNECTED;
+    read(sd, &CONNECTED, sizeof(int));
+    if (CONNECTED == 0)
+    {
+        printf("~~Log in to perform this action.\n");
+        return 1;
+    }
+    char new_dir[30];
+    while(1)
+    {
+        read_input(new_dir, 30);
+        write(sd, new_dir, 30);
+    }
+    return 0;
+}
 int HandleSignup(int sd, char* final_username)
 {
-    check_server_state(sd);
+    //check_server_state(sd);
     SendCommand(sd, SIGNUP_REQ);
+    int CONNECTED;
+    read(sd, &CONNECTED, sizeof(int));
+    if (CONNECTED == 1)
+    {
+        printf("~~User already logged in ('sign out' first).\n");
+        return 1;
+    }
     char username[USER_INFO_SIZE];
     do
     {
@@ -249,8 +290,12 @@ int HandleSignup(int sd, char* final_username)
 
     return 0;
 }
-
-
+int sd=0;
+void end_conn()
+{
+    close(sd);
+    exit(1);
+}
 int main(int argc, char* argv[])
 {
     if (argc!=3)
@@ -258,8 +303,9 @@ int main(int argc, char* argv[])
         printf("Command syntax:%s <IP Address> <PORT> \n", argv[0]);
         return -1;
     }
+    atexit(end_conn);
     int port=atoi(argv[2]);
-    int sd=socket(AF_INET, SOCK_STREAM, 0);
+    sd=socket(AF_INET, SOCK_STREAM, 0);
     if (sd == -1)
     {
         perror("Error at socket \n");
@@ -278,29 +324,19 @@ int main(int argc, char* argv[])
         return errno;
     }
 
-    signal(SIGPIPE,sigpipe_handler);
-
-
-    printf("~~CONNECTED TO MyFTP SERVER... \n");
+    signal(SIGPIPE,sigpipe_handler);    
+    printf("~~~CONNECTED TO MyFTP SERVER... \n");
     char client[100]="Client";
     while(1)
     {
         char command[CMD_SIZE];
         printf("%s>", client); fflush(stdout);
         read_input(command, CMD_SIZE);
-
+        perror(" \n");
         /*interpret command */
         if (strstr(command, "login"))
         {
              /* user wants to log in*/
-            //int CONNECTED;
-            //printf("starting to read \n");
-            //read(sd, &CONNECTED, sizeof(int));
-            // if (CONNECTED == 1)
-            // {
-            //     printf("~~User already logged in.\n");
-            //     continue;
-            // }
             char username[USER_INFO_SIZE];
             int code=HandleLogin(sd, command, username);
             if (code == -1)
@@ -318,6 +354,23 @@ int main(int argc, char* argv[])
             strcpy(client, username);
             continue;
         }
+        if (strcmp(command, "seefiles ")==0 || strcmp(command, "seefiles")==0)
+        {
+            Handle_ls(sd);
+            continue;
+        }
+
+        if (strcmp(command, "sign out ") ==0
+            || strcmp(command,"sign out")==0)
+        {
+            if (SendCommand(sd, DISCON) == -1)
+                continue;
+            strcpy(client, "Client");
+            printf("~~~User signed out. \n");
+            continue;
+        }
+
+        
 
         if (strcmp(command, "quit") ==0
             || strcmp(command,"quit ")==0)

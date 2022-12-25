@@ -10,11 +10,11 @@
 #include <signal.h>
 #include "parson.c"
 #include "parson.h"
-
+#include <dirent.h>
 
 
 /* setting a PORT */
-#define PORT 9001
+#define PORT 9010
 
 
 extern int errno;
@@ -38,6 +38,11 @@ extern int errno;
 #define UPLOAD_REQ 3
 #define QUIT 4
 #define SIGNUP_REQ 5
+#define DISCON 6
+#define LOGIN_INTRP 7
+#define LOGIN_CONT 8
+
+
 
 char USERS_JSON[30] ="user_data.json";
 struct user_record{
@@ -153,10 +158,18 @@ int get_user_from_json(const char* usr_hash, struct user_record *user)
     return -1;
 
 }
+
+void read_input(char* buffer, int size)
+{
+    fgets(buffer, size, stdin);
+    buffer[strlen(buffer)-1]='\0';
+    /* remove \n character */
+}
+
 int HandleSignup(int client_connection)
 {
     int signal;
-    printf("user wants to sign up \n");
+    perror("user wants to sign up \n");
     char usr_hash[USER_HASH_SIZE];
     if( read(client_connection, usr_hash, USER_HASH_SIZE) == -1 )
     {
@@ -199,7 +212,15 @@ int HandleLogin(int client_connection)
     char usr_hash[USER_HASH_SIZE];
     char pass_hash[USER_HASH_SIZE];
 
-    printf("user wants to log in \n");
+    perror("user wants to log in \n");
+
+    int cmd;
+    read(client_connection, &cmd, sizeof(int));
+    if (cmd==LOGIN_INTRP)
+    {
+        return -1;
+    }
+    
     if (read(client_connection, usr_hash, USER_HASH_SIZE) == -1)
     {
         perror("problem at trasnfering user data \n");
@@ -231,6 +252,53 @@ int HandleLogin(int client_connection)
     write(client_connection, &signal, sizeof(int));
     return 0;
 }
+int InspectDir(const char* dirname, const char* dirpath)
+{
+    DIR* dir=opendir(dirpath);
+    if(dir == NULL)
+    {
+        printf("Invalid dir %s \n", dirpath);
+        return -1;
+    }
+    printf("===Listing files in directory %s \n", dirname);
+
+    struct dirent* fidir;
+    fidir=readdir(dir);
+    while(fidir!=NULL)
+    {
+        if(strcmp(fidir->d_name, ".") != 0 && strcmp(fidir->d_name, "..") != 0)
+        {
+            printf("%s \n", fidir->d_name);
+        }
+        fidir=readdir(dir);
+    }
+    closedir(dir);
+    return 0;
+
+}
+int Handle_ls(int client_connection)
+{
+
+    char path[200]=".";
+    //InspectDir(".", path);
+    char name[30];
+    while(1)
+    {
+        read(client_connection, name, 30);
+        printf("%s \n", name);
+        // char temp_path[200];
+        // temp_path[0]='\0';
+        // strncpy(temp_path, path, strlen(path));
+        // strcat(temp_path, "/");
+        // strcat(temp_path, name);
+        // printf("%s \n", temp_path);
+        // if (InspectDir(name, temp_path) == 0)
+        // {
+        //     strncpy(path, temp_path, strlen(temp_path));
+        // }
+    }
+    return 0;
+}
 /* descriptors */
 int client_connection=0;
 int sd=0;	
@@ -242,19 +310,36 @@ void end_server()
     close(sd);
     exit(1);
 }
-
+// int HandleServerTerminal()
+// {
+//     char command[CMD_SIZE];
+//     while(1)
+//     {
+//         printf("SERVER> "); fflush(stdout);
+//         read_input(command, CMD_SIZE);
+//     }
+//     return 0;
+// }
 int main()
 {
     signal(SIGTSTP, end_server); /* for ctrl + z */
+    signal(SIGINT, end_server); /* for ctrl + z */
+    
     atexit(end_server);
     
-    /* init user info base */
     if (access(USERS_JSON, F_OK) != 0)
     {
         init_json();
     }
 
+    // int server_terminal=fork();
+    // if (server_terminal==0)
+    // {
+    //     HandleServerTerminal();
+    //     return 0;
+    // }
 
+    /* init user info base */
     struct sockaddr_in server_main;	// server main socket
     struct sockaddr_in server_to_client;    //client socket
     bzero (&server_main, sizeof (server_main));
@@ -283,10 +368,10 @@ int main()
     }    
     
     printf("Server is up and running, awaiting users on PORT %d \n", PORT);
+    
     while(1)
     {
         int clients_length=sizeof(server_to_client);
-
         client_connection=accept(sd, (struct sockaddr*)&server_to_client, &clients_length);
         if(client_connection<0)
         {
@@ -296,6 +381,7 @@ int main()
         char ip[30];
         inet_ntop(AF_INET, &server_to_client.sin_addr, ip,30);
         printf("One Client has just connected, IP: %s \n", ip);
+
         int client_pid=fork();
         if (client_pid == 0)
         {
@@ -304,24 +390,24 @@ int main()
             int CONNECTED=0;
             while(1)
             {
+
                 int cmd_id=0;
                 if (read(client_connection, &cmd_id, sizeof(int)) <= 0)
                 {
-                    printf("Client disconnected \n");
+                    perror("Client disconnected \n");
                     close(client_connection);
                     return 0;
                 }
                 if (cmd_id == LOGIN_REQ)
                 {
-                    // if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
-                    // {
-                    //    perror("error at sencind conn signal \n");
-                    //    return -1;
-                    // }
-                    // if(CONNECTED == 1)
-                    // {
-                    //     continue;
-                    // }
+                    if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
+                    {
+                       return -1;
+                    }
+                    if(CONNECTED == 1)
+                    {
+                        continue;
+                    }
                     if(HandleLogin(client_connection)==0)
                     {
                         CONNECTED=1;
@@ -330,14 +416,43 @@ int main()
                 }
                 if (cmd_id == SIGNUP_REQ)
                 {
-                    HandleSignup(client_connection);
-                    CONNECTED=1;
+                    if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
+                    {
+                       return -1;
+                    }
+                    if(CONNECTED == 1)
+                    {
+                        continue;
+                    }
+                    if(HandleSignup(client_connection) == 0)
+                    {
+                        CONNECTED=1;
+                    }
+                    continue;
+                }
+                // if (cmd_id == INSPECT_REQ)
+                // {
+                //     if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
+                //     {
+                //        return -1;
+                //     }
+                //     if(CONNECTED == 0)
+                //     {
+                //         continue;
+                //     }
+                //     printf("User wants to ls \n");
+                //     Handle_ls(sd);
+                //     continue;
+                // }
+                if(cmd_id==DISCON)
+                {
+                    CONNECTED=0;
                     continue;
                 }
                 if (cmd_id == QUIT)
                 {
                     close(client_connection);
-                    printf("Client disconnected \n");
+                    perror("Client disconnected \n");
                     return 0;
                 }
             }
@@ -345,6 +460,9 @@ int main()
         //in parent or error at fork
         close(client_connection);
     }
+
+
+
 
 
     return 0;

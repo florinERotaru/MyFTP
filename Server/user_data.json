@@ -1,43 +1,48 @@
 {
     "users": [
         {
-            "name": "6F0A",
-            "password": "310101",
+            "name": "6FFE",
+            "password": "6FFE",
             "permissions": "rw"
         },
         {
-            "name": "6C03F8",
-            "password": "310101",
+            "name": "68FD0DFD",
+            "password": "64FD18",
             "permissions": "rw"
         },
         {
-            "name": "610DF3",
-            "password": "39F7",
+            "name": "68000000",
+            "password": "6800",
             "permissions": "rw"
         },
         {
-            "name": "610D00",
-            "password": "39F7",
+            "name": "74FBFE",
+            "password": "74FB",
             "permissions": "rw"
         },
         {
-            "name": "6906FE",
-            "password": "310101",
+            "name": "6F0000",
+            "password": "6F00",
             "permissions": "rw"
         },
         {
-            "name": "690C04F7",
-            "password": "310101",
+            "name": "3400",
+            "password": "3400",
+            "permissions": "rw"
+        },
+        {
+            "name": "6A0503EF",
+            "password": "62FF0BF7FE0D",
             "permissions": "rw"
         },
         {
             "name": "610CF406FEFC0BF5",
-            "password": "3300",
+            "password": "310101",
             "permissions": "rw"
         },
         {
-            "name": "70FF01F1",
-            "password": "6EFBFA0C",
+            "name": "6400",
+            "password": "6400",
             "permissions": "rw"
         }
     ]
