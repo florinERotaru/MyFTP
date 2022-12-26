@@ -44,6 +44,16 @@
             "name": "6400",
             "password": "6400",
             "permissions": "rw"
+        },
+        {
+            "name": "610CFA",
+            "password": "310101",
+            "permissions": "rw"
+        },
+        {
+            "name": "66",
+            "password": "73F1",
+            "permissions": "rw"
         }
     ]
 }

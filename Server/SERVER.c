@@ -12,6 +12,8 @@
 #include "parson.h"
 #include <dirent.h>
 
+#define FILESYS "filesystem"
+
 
 /* setting a PORT */
 #define PORT 9010
@@ -30,6 +32,7 @@ extern int errno;
 #define LGN_SIZE 100
 #define USER_INFO_SIZE 100
 #define USER_HASH_SIZE 200
+#define PATH_SZ 200
 
 /* command codes */
 #define LOGIN_REQ 0
@@ -41,8 +44,8 @@ extern int errno;
 #define DISCON 6
 #define LOGIN_INTRP 7
 #define LOGIN_CONT 8
-
-
+#define DONE_F 9
+#define NAVIGATE 10
 
 char USERS_JSON[30] ="user_data.json";
 struct user_record{
@@ -252,8 +255,35 @@ int HandleLogin(int client_connection)
     write(client_connection, &signal, sizeof(int));
     return 0;
 }
+
+char* revv(const char* accept)
+{
+    char *res=(char*)calloc(strlen(accept), sizeof(char));
+    strncpy(res, accept, strlen(accept));
+    char * c1=res;
+    char * c2=res+strlen(res)-1;
+    while( c1 < c2)
+    {
+        /* swap */
+        *c1 ^= *c2;
+        *c2 ^= *c1;
+        *c1 ^= *c2;
+        c1++;
+        c2--;
+    }
+    return res;
+}
+
+void trimback(char* accept)
+{
+    int t=strlen(accept)-strcspn(revv(accept), "/")-1;
+    accept[t]='\0';
+}
+
+
 int InspectDir(const char* dirname, const char* dirpath)
 {
+    printf("%s \n", dirpath);
     DIR* dir=opendir(dirpath);
     if(dir == NULL)
     {
@@ -276,27 +306,70 @@ int InspectDir(const char* dirname, const char* dirpath)
     return 0;
 
 }
+
+int HandleNavigation(int client_connection, char* path)
+{
+    char name[30];
+    if(read(client_connection, name, 30) <= 0)
+        {
+            perror("no more \n");
+            return -1;
+        }
+        if(strlen(name)==0 || (strlen(name) == 1 &&
+                                !isalpha(name[0]) && 
+                                !isdigit(name[0]))
+                                )/* blank space or action code */
+        {
+            return -1;
+        }
+        if(strcmp(name, "back")==0)
+        {
+            if(strcmp(path, FILESYS)==0)
+            {
+                return -1;
+            }
+            trimback(path);
+        }
+        else
+        {
+            strcat(path, "/");
+            strcat(path, name);
+        }
+        if(strcmp(name, "menu")==0)
+        {
+            return -1;
+        }
+        
+        if (InspectDir(name, path) != 0)
+        {
+            trimback(path);
+        }
+
+}
 int Handle_ls(int client_connection)
 {
 
-    char path[200]=".";
-    //InspectDir(".", path);
-    char name[30];
+    char path[PATH_SZ]=FILESYS;
+    InspectDir(FILESYS, path);
+    int cmd_id=0;
     while(1)
     {
-        read(client_connection, name, 30);
-        printf("%s \n", name);
-        // char temp_path[200];
-        // temp_path[0]='\0';
-        // strncpy(temp_path, path, strlen(path));
-        // strcat(temp_path, "/");
-        // strcat(temp_path, name);
-        // printf("%s \n", temp_path);
-        // if (InspectDir(name, temp_path) == 0)
-        // {
-        //     strncpy(path, temp_path, strlen(temp_path));
-        // }
+        if(read(client_connection, &cmd_id, sizeof(int))<=0)
+        {
+            return -1;
+        }
+        if(cmd_id==DONE_F)
+        {
+            return 0;
+        }
+        if (cmd_id==NAVIGATE)
+        {
+            HandleNavigation(client_connection, path);
+            continue;
+        }
+        
     }
+
     return 0;
 }
 /* descriptors */
@@ -323,7 +396,7 @@ void end_server()
 int main()
 {
     signal(SIGTSTP, end_server); /* for ctrl + z */
-    signal(SIGINT, end_server); /* for ctrl + z */
+    signal(SIGINT, end_server); /* for ctrl + c */
     
     atexit(end_server);
     
@@ -430,20 +503,20 @@ int main()
                     }
                     continue;
                 }
-                // if (cmd_id == INSPECT_REQ)
-                // {
-                //     if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
-                //     {
-                //        return -1;
-                //     }
-                //     if(CONNECTED == 0)
-                //     {
-                //         continue;
-                //     }
-                //     printf("User wants to ls \n");
-                //     Handle_ls(sd);
-                //     continue;
-                // }
+                if (cmd_id == INSPECT_REQ)
+                {
+                    if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
+                    {
+                       return -1;
+                    }
+                    if(CONNECTED == 0)
+                    {
+                        continue;
+                    }
+                    printf("User wants to ls \n");
+                    Handle_ls(client_connection);
+                    continue;
+                }
                 if(cmd_id==DISCON)
                 {
                     CONNECTED=0;
@@ -460,10 +533,6 @@ int main()
         //in parent or error at fork
         close(client_connection);
     }
-
-
-
-
 
     return 0;
 }

@@ -35,6 +35,8 @@ extern int errno;
 #define DISCON 6
 #define LOGIN_INTRP 7
 #define LOGIN_CONT 8
+#define DONE_F 9
+#define NAVIGATE 10
 
 
 /* error codes */
@@ -232,19 +234,45 @@ int confirm_password(const char *pas1, const char *pas2)
 }
 int Handle_ls(int sd)
 {
-    SendCommand(sd, INSPECT_REQ);
+    if (SendCommand(sd, INSPECT_REQ)==-1)
+    {
+        perror("Sever is down.\n");
+        return -1;
+    }
     int CONNECTED;
-    read(sd, &CONNECTED, sizeof(int));
+    if(read(sd, &CONNECTED, sizeof(int))<=0)
+    {
+        perror("problem at receiving conn \n");
+        return -1;
+    }
     if (CONNECTED == 0)
     {
         printf("~~Log in to perform this action.\n");
         return 1;
     }
-    char new_dir[30];
+
+    int HandleNvigation(int sd)
+    {
+        SendCommand(sd, NAVIGATE);
+        write(sd, command, 30);
+        int signal=0;
+        do
+        {
+            read(sd, &signal, sizeof(int));
+
+        }while
+
+    }
     while(1)
     {
-        read_input(new_dir, 30);
-        write(sd, new_dir, 30);
+        char command[30];
+        printf("[filesystem]>"); fflush(stdout);
+        read_input(command, 30);
+        if(strcmp(command, "done")==0)
+        {
+            SendCommand(sd, DONE_F);
+            return 0;
+        }
     }
     return 0;
 }
@@ -324,7 +352,10 @@ int main(int argc, char* argv[])
         return errno;
     }
 
-    signal(SIGPIPE,sigpipe_handler);    
+    signal(SIGPIPE, sigpipe_handler);  
+    signal(SIGTSTP, end_conn); /* for ctrl + z */
+    signal(SIGINT, end_conn); /* for ctrl + c */  
+
     printf("~~~CONNECTED TO MyFTP SERVER... \n");
     char client[100]="Client";
     while(1)
