@@ -9,21 +9,26 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <fcntl.h>
 extern int errno;
 
 /* signal */
-#define USER_EXSTS 10
-#define USER_VALID 11
-#define SGNUP_SUCC 12
-#define INCRCT_DATA 13
-#define LOGIN_SUCC 14
-
+#define USER_EXSTS 30
+#define USER_VALID 31
+#define SGNUP_SUCC 32
+#define INCRCT_DATA 33
+#define LOGIN_SUCC 34
+#define ERRMKDIR 35
+#define MKDIRSUCC 36
+#define STOP_DWNLD 37
+#define OK 38
 
 /* sizes */
 #define CMD_SIZE 100
 #define LGN_SIZE 100
 #define USER_INFO_SIZE 100
 #define USER_HASH_SIZE 200
+#define DIRLEN 50
 
 /* command codes */
 #define LOGIN_REQ 0
@@ -37,7 +42,12 @@ extern int errno;
 #define LOGIN_CONT 8
 #define DONE_F 9
 #define NAVIGATE 10
-
+#define INCOMING_DATA 11
+#define INV_PATH 12
+#define DONE_INSPECTING 13
+#define REACHED_ROOT 14
+#define NEW_DIR 15
+#define GETFILE 16
 
 /* error codes */
 #define SERVER_DOWN -2
@@ -55,6 +65,16 @@ const char* Encode(const char* decrypted_msg)
     }
     return encrypted_message;
 }  
+
+int SendCommand( int socket_des, int COMMAND_ID)
+{
+    if (write(socket_des, &COMMAND_ID, sizeof(int))<=0)
+    {
+        printf("Server Unable to Receive Requests \n");
+        return -1;
+    }
+    return 0;
+}
 
 int ValidatePassword(const char* password)
 {
@@ -74,7 +94,7 @@ int ValidateUsername(const char* username, int sd)
         return -1;
     }
 
-    if (write(sd, Encode(username), USER_HASH_SIZE) == -1)
+    if (write(sd, Encode(username), USER_HASH_SIZE) <= 0)
     {
         perror("Error ar transfering user data \n");
         return -1;
@@ -126,6 +146,39 @@ int GetUsername( char* login_command, char username[LGN_SIZE])
     return 0;
 }
 
+
+int GetDirArg( char* login_command, char dirname[DIRLEN])
+{
+    if (!strchr(login_command, ' '))
+        return -1;
+    int counter=0;
+    char *word;
+    word=strtok(login_command, " ");
+    while( word != NULL)
+    {
+        if(counter==1)
+        {   
+            strcpy(dirname, word);
+            
+        }
+        if(counter==2)
+        {
+            return -1;
+
+        }
+        word = strtok (NULL, " ");
+        counter++;
+    }
+    if (strlen(dirname) == 1)
+    {
+        return -1;
+    }
+    if (counter == 1)
+        return -1;
+    return 0;
+}
+
+
  
 void read_input(char* buffer, int size)
 {
@@ -133,15 +186,7 @@ void read_input(char* buffer, int size)
     buffer[strlen(buffer)-1]='\0';
     /* remove \n character */
 }
-int SendCommand( int socket_des, int COMMAND_ID)
-{
-    if (write(socket_des, &COMMAND_ID, sizeof(int))<=0)
-    {
-        printf("Server Unable to Receive Requests \n");
-        return -1;
-    }
-    return 0;
-}
+
 void check_server_state(int sd)
 {
     if (recv(sd, NULL, 1,  MSG_PEEK | MSG_DONTWAIT) == 0)
@@ -232,8 +277,168 @@ int confirm_password(const char *pas1, const char *pas2)
     }
     return 0;
 }
+
+int ReceiveEntryList(int sd)
+{
+    int signal=0;
+    read(sd, &signal, sizeof(int));
+    if(signal==REACHED_ROOT)
+    {
+        printf("~~~Root Reached. \n");
+        return -1;
+    }
+    if(signal==INV_PATH)
+    {
+        printf("~~~Invalid directory name. \n");
+        return -1;
+    } /* confirm that transmission will start */
+
+    char* dirname=(char*)calloc(30, sizeof(char));
+    if(read(sd, dirname, 30) <= 0)
+    {
+        printf("Error at retreiving dirnam \n");
+        return -1;
+    } /* get current file name */
+    printf("===%s", dirname);
+    for (int i=0; i<35-strlen(dirname); i++)
+    {
+        printf("=");
+    }
+    //printf("Size(bytes) \n");
+    printf("\n");
+
+    free(dirname);
+    
+    char entryname[50];
+    //int size=0;
+    read(sd, &signal, sizeof(int));
+    while(signal==INCOMING_DATA)
+    {
+        read(sd, entryname, 50);
+        //read(sd, &size, sizeof(int));
+        printf("   %s", entryname);
+        for(int i=0; i<40-strlen(entryname); i++)
+        {
+            printf(".");
+        }
+        //printf("%d \n", size);
+        printf("\n");
+
+        read(sd, &signal, sizeof(int));
+    }
+    
+    if(signal==DONE_INSPECTING)
+    {
+        return 0;
+    }
+    return 0;
+}
+
+int HandleMkdir(int sd, char* command)
+{
+    char dirname[DIRLEN];
+    if (GetDirArg(command, dirname)==-1)
+    {
+        printf("syntax error - mkdir syntax: mkdir <directory name> \n");
+        return -1;
+    }
+    SendCommand(sd, NEW_DIR);
+    write(sd, dirname, DIRLEN);
+    /* sent dir. name*/
+
+    /* check status: */
+    int signal=0;
+    read(sd, &signal, sizeof(int));
+    if(signal==ERRMKDIR)
+    {
+        printf("~~~Could not create specified directory \n");
+        return -1;
+    }
+    if(signal==MKDIRSUCC)
+    {
+        printf("~~~Directory created: \n");
+        ReceiveEntryList(sd);
+
+    }
+    return 0;
+}
+int GetFile(int sd, char* filename)
+{
+    int signal=0;
+	int newfile=open(filename, O_RDWR|O_TRUNC|O_CREAT, S_IRWXU);
+    if(newfile==-1)
+    {
+        perror("~~~File download failed. \n");
+        close(newfile);
+        signal=STOP_DWNLD;
+        write(sd, &signal, sizeof(int));
+        return -1;      /* send ok to server */
+    }
+    signal=OK;
+    write(sd, &signal, sizeof(int));
+
+    write(sd, filename, DIRLEN); /* sent requested file name */
+
+    signal=0;
+    read(sd, &signal, sizeof(int));
+    if(signal == STOP_DWNLD)
+    {
+        printf("~~~No such file in the database. \n");
+        //remove(filename);
+        close(newfile);
+        return -1;      /* get ok from server*/
+    }
+
+    unsigned char buffer[4096];
+	bzero(buffer, 4096);
+	int count=0;
+
+	printf("starting to transfer... \n");
+    while ((count = recv(sd, buffer, sizeof buffer, 0)) > 0)
+  	{
+        // printf("%d \n", count);
+        // perror(" ");
+    	if ( (write(newfile, buffer, count)) < 0)
+    	{
+     		perror("write"); //  at least
+      		return -1;
+    	}
+        if (count<0)
+  		{
+   			perror("[server] reading \n");
+            return -1;
+ 	 	}
+        
+        signal=0;
+        read(client_connection, &signal, sizeof(int));
+        if (signal != SENDING)
+        {
+            return -1;
+        }
+
+
+       
+ 	}
+    printf("reached here \n");
+    close(newfile);
+    return 0;
+}
+int HandleDownload(int sd, char* command)
+{
+    char filename[DIRLEN];
+    if (GetDirArg(command, filename)==-1)
+    {
+        printf("syntax error - get syntax: get <filename> \n");
+        return -1;
+    }
+    SendCommand(sd, GETFILE);
+    GetFile(sd, filename);
+
+    return 0;
+}
 int Handle_ls(int sd)
 {
+
     if (SendCommand(sd, INSPECT_REQ)==-1)
     {
         perror("Sever is down.\n");
@@ -251,18 +456,8 @@ int Handle_ls(int sd)
         return 1;
     }
 
-    int HandleNvigation(int sd)
-    {
-        SendCommand(sd, NAVIGATE);
-        write(sd, command, 30);
-        int signal=0;
-        do
-        {
-            read(sd, &signal, sizeof(int));
 
-        }while
-
-    }
+    ReceiveEntryList(sd);
     while(1)
     {
         char command[30];
@@ -273,6 +468,19 @@ int Handle_ls(int sd)
             SendCommand(sd, DONE_F);
             return 0;
         }
+        if(strstr(command, "mkdir"))
+        {
+            HandleMkdir(sd, command);
+            continue;
+        }
+        if(strstr(command, "get"))
+        {
+            HandleDownload(sd, command);
+            continue;
+        }
+        SendCommand(sd, NAVIGATE);
+        write(sd, command, 30);
+        ReceiveEntryList(sd);
     }
     return 0;
 }

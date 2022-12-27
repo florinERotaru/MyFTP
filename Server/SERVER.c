@@ -11,6 +11,10 @@
 #include "parson.c"
 #include "parson.h"
 #include <dirent.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
+#include <fcntl.h>
+
 
 #define FILESYS "filesystem"
 
@@ -22,17 +26,24 @@
 extern int errno;
 
 /* signal */
-#define USER_EXSTS 10
-#define USER_VALID 11
-#define SGNUP_SUCC 12
-#define INCRCT_DATA 13
-#define LOGIN_SUCC 14
+#define USER_EXSTS 30
+#define USER_VALID 31
+#define SGNUP_SUCC 32
+#define INCRCT_DATA 33
+#define LOGIN_SUCC 34
+#define ERRMKDIR 35
+#define MKDIRSUCC 36
+#define STOP_DWNLD 37
+#define OK 38
+
 /* sizes */
 #define CMD_SIZE 100
 #define LGN_SIZE 100
 #define USER_INFO_SIZE 100
 #define USER_HASH_SIZE 200
 #define PATH_SZ 200
+#define DIRLEN 50
+
 
 /* command codes */
 #define LOGIN_REQ 0
@@ -46,6 +57,13 @@ extern int errno;
 #define LOGIN_CONT 8
 #define DONE_F 9
 #define NAVIGATE 10
+#define INCOMING_DATA 11
+#define INV_PATH 12
+#define DONE_INSPECTING 13
+#define REACHED_ROOT 14
+#define NEW_DIR 15
+#define GETFILE 16
+
 
 char USERS_JSON[30] ="user_data.json";
 struct user_record{
@@ -174,7 +192,7 @@ int HandleSignup(int client_connection)
     int signal;
     perror("user wants to sign up \n");
     char usr_hash[USER_HASH_SIZE];
-    if( read(client_connection, usr_hash, USER_HASH_SIZE) == -1 )
+    if( read(client_connection, usr_hash, USER_HASH_SIZE) <= 0)
     {
         perror("Error at transfering user data \n");
         return -1;
@@ -186,7 +204,7 @@ int HandleSignup(int client_connection)
         //Username already exists
         signal=USER_EXSTS;
         write(client_connection, &signal, sizeof(int));
-        if( read(client_connection, usr_hash, USER_HASH_SIZE) == -1 )
+        if( read(client_connection, usr_hash, USER_HASH_SIZE) <=0 )
         {
             perror("(2)Error at transfering user data \n");
             return -1;
@@ -224,11 +242,11 @@ int HandleLogin(int client_connection)
         return -1;
     }
     
-    if (read(client_connection, usr_hash, USER_HASH_SIZE) == -1)
+    if (read(client_connection, usr_hash, USER_HASH_SIZE) <= 0)
     {
         perror("problem at trasnfering user data \n");
     }
-    if (read(client_connection, pass_hash, USER_HASH_SIZE) == -1)
+    if (read(client_connection, pass_hash, USER_HASH_SIZE) <= 0)
     {
         perror("problem at trasnfering user data \n");
     }
@@ -258,8 +276,8 @@ int HandleLogin(int client_connection)
 
 char* revv(const char* accept)
 {
-    char *res=(char*)calloc(strlen(accept), sizeof(char));
-    strncpy(res, accept, strlen(accept));
+    char *res=(char*)calloc(200, sizeof(char));
+    strncpy(res, accept, 200);
     char * c1=res;
     char * c2=res+strlen(res)-1;
     while( c1 < c2)
@@ -281,51 +299,73 @@ void trimback(char* accept)
 }
 
 
-int InspectDir(const char* dirname, const char* dirpath)
+int InspectDir(int client_connection, const char* dirname, char* dirpath)
 {
+    int signal=0;
     printf("%s \n", dirpath);
     DIR* dir=opendir(dirpath);
     if(dir == NULL)
     {
         printf("Invalid dir %s \n", dirpath);
+        signal=INV_PATH;
+        write(client_connection, &signal, sizeof(int));
         return -1;
     }
-    printf("===Listing files in directory %s \n", dirname);
+    /* let the client know that all is ok*/
+    signal=INCOMING_DATA;
+    write(client_connection, &signal, sizeof(int));
+
+    write(client_connection, dirname, 30); /* send dirname */
 
     struct dirent* fidir;
     fidir=readdir(dir);
+    struct stat st;
     while(fidir!=NULL)
     {
         if(strcmp(fidir->d_name, ".") != 0 && strcmp(fidir->d_name, "..") != 0)
         {
-            printf("%s \n", fidir->d_name);
+            signal=INCOMING_DATA;
+            write(client_connection, &signal, sizeof(int));
+            write(client_connection, fidir->d_name, 50);
+            /* make the path to get the size */
+            //stat(dirpath, &st);
+            //write(client_connection, &st.st_size, sizeof(int));
+            
+            printf("%s \n", fidir->d_name);//send name
         }
         fidir=readdir(dir);
     }
+    signal=DONE_INSPECTING;
+    write(client_connection, &signal, sizeof(int));
     closedir(dir);
     return 0;
 
 }
 
-int HandleNavigation(int client_connection, char* path)
+int HandleNavigation(int client_connection, char* path, char name[30])
 {
-    char name[30];
     if(read(client_connection, name, 30) <= 0)
         {
             perror("no more \n");
             return -1;
         }
-        if(strlen(name)==0 || (strlen(name) == 1 &&
+        if(strlen(name)==0 || name[0]=='/' 
+                                || 
+                                (strlen(name) == 1 &&
                                 !isalpha(name[0]) && 
                                 !isdigit(name[0]))
                                 )/* blank space or action code */
         {
+            int signal=INV_PATH;
+            write(client_connection, &signal, sizeof(int));
             return -1;
         }
         if(strcmp(name, "back")==0)
         {
             if(strcmp(path, FILESYS)==0)
             {
+                int signal=REACHED_ROOT;
+                write(client_connection, &signal, sizeof(int));
                 return -1;
             }
             trimback(path);
@@ -340,18 +380,108 @@ int HandleNavigation(int client_connection, char* path)
             return -1;
         }
         
-        if (InspectDir(name, path) != 0)
+        if (InspectDir(client_connection, name, path) != 0)
         {
             trimback(path);
         }
-
+    return 0;
 }
+
+int HandleMkdir(int client_connection, char* path, char current_name[30])
+{
+    char dirname[DIRLEN];
+    if (read(client_connection, dirname, DIRLEN) <= 0)
+    {
+        perror("Error at getting the newdir name \n");
+        return -1;
+    }
+    strcat(path, "/");
+    strcat(path, dirname);
+    printf("%s \n", path);
+    int signal=0;
+    if (mkdir(path, 0777) == -1)
+    {
+        signal=ERRMKDIR;
+        write(client_connection, &signal, sizeof(int));
+        return -1;
+    }
+    signal=MKDIRSUCC;
+    write(client_connection, &signal, sizeof(int));
+    trimback(path);
+    InspectDir(client_connection, current_name, path);
+
+    return 0;
+}
+int SendFile(int client_connection, char* path)
+{
+    int signal=0;
+    read(client_connection, &signal, sizeof(int));
+    if(signal == STOP_DWNLD)
+    {
+        return -1;
+    }               /* get ok from client */
+
+    char filename[DIRLEN];
+    read(client_connection, filename, DIRLEN);
+    strcat(path, "/");
+    strcat(path, filename);
+    printf("%s \n", path);
+    int sentfile=open(path, O_RDWR);
+    if (sentfile == -1)
+    {
+        printf("could not open \n");
+        signal=STOP_DWNLD;
+        write(client_connection, &signal, sizeof(int));
+        trimback(path);
+        return -1;
+    }
+    perror("opened \n");
+       
+    signal=OK;   /* send ok to client */
+    write(client_connection, &signal, sizeof(int));
+
+    int count;
+    unsigned char buffer[4096];
+    bzero(buffer, 4096);
+    off_t offset=0;
+
+    int signal=SENDING;
+    while(count = sendfile(client_connection,sentfile,&offset,4096)>0) 
+    { 
+        write(client_connection, &signal, sizeof(int));
+        if (count<0)
+        {
+            perror("errr \n");
+            return -1;
+        }
+    }
+    perror("done sending \n");
+    close (sentfile);
+    trimback(path);
+    return 0;
+}
+// int HandleDownload(int client_connection, char* path)
+// {
+//     char filename[DIRLEN];
+//     if (read(client_connection, filename, DIRLEN) <= 0)
+//     {
+//         perror("Error at getting the filename(d) name \n");
+//         return -1;
+//     }
+//     strcat(path, "/");
+//     strcat(path, filename);
+//     printf("%s \n", path);
+//     int signal=0;
+
+//     return 0;
+// }
 int Handle_ls(int client_connection)
 {
 
     char path[PATH_SZ]=FILESYS;
-    InspectDir(FILESYS, path);
+    InspectDir(client_connection, FILESYS, path);
     int cmd_id=0;
+    char current_name[30];
     while(1)
     {
         if(read(client_connection, &cmd_id, sizeof(int))<=0)
@@ -364,7 +494,17 @@ int Handle_ls(int client_connection)
         }
         if (cmd_id==NAVIGATE)
         {
-            HandleNavigation(client_connection, path);
+            HandleNavigation(client_connection, path, current_name);
+            continue;
+        }
+        if (cmd_id==NEW_DIR)
+        {
+            HandleMkdir(client_connection, path, current_name);
+            continue;
+        }
+        if (cmd_id==GETFILE)
+        {
+            SendFile(client_connection, path);
             continue;
         }
         
@@ -489,7 +629,7 @@ int main()
                 }
                 if (cmd_id == SIGNUP_REQ)
                 {
-                    if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
+                    if (write(client_connection, &CONNECTED, sizeof(int)) <= 0)
                     {
                        return -1;
                     }
@@ -505,7 +645,7 @@ int main()
                 }
                 if (cmd_id == INSPECT_REQ)
                 {
-                    if (write(client_connection, &CONNECTED, sizeof(int)) == -1)
+                    if (write(client_connection, &CONNECTED, sizeof(int)) <= 0)
                     {
                        return -1;
                     }

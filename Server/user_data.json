@@ -54,6 +54,26 @@
             "name": "66",
             "password": "73F1",
             "permissions": "rw"
+        },
+        {
+            "name": "\u0006",
+            "password": "\u0005",
+            "permissions": "rw"
+        },
+        {
+            "name": "\u0005",
+            "password": "\u0006",
+            "permissions": "rw"
+        },
+        {
+            "name": "6A0503EFD1",
+            "password": "310101",
+            "permissions": "rw"
+        },
+        {
+            "name": "70000000",
+            "password": "700000",
+            "permissions": "rw"
         }
     ]
 }
