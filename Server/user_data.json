@@ -74,6 +74,41 @@
             "name": "70000000",
             "password": "700000",
             "permissions": "rw"
+        },
+        {
+            "name": "610BF5030505",
+            "password": "3001",
+            "permissions": "rw"
+        },
+        {
+            "name": "73F10F",
+            "password": "640F",
+            "permissions": "rw"
+        },
+        {
+            "name": "630CFF06BD",
+            "password": "70F111FDFDF5D0",
+            "permissions": "rw"
+        },
+        {
+            "name": "70F111FDFDF5D0",
+            "password": "\u0010",
+            "permissions": "rw"
+        },
+        {
+            "name": "630CFF06C0",
+            "password": "70F111FDFDF5D0",
+            "permissions": "rw"
+        },
+        {
+            "name": "630CFF06BE",
+            "password": "70F111FDFDF5D0",
+            "permissions": "rw"
+        },
+        {
+            "name": "630CFF06BF",
+            "password": "70F111FDFDF5D0",
+            "permissions": "rw"
         }
     ]
 }

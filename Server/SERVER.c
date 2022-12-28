@@ -42,7 +42,7 @@ extern int errno;
 #define USER_INFO_SIZE 100
 #define USER_HASH_SIZE 200
 #define PATH_SZ 200
-#define DIRLEN 50
+#define DIRLEN 200
 
 
 /* command codes */
@@ -63,8 +63,9 @@ extern int errno;
 #define REACHED_ROOT 14
 #define NEW_DIR 15
 #define GETFILE 16
+#define UPLFILE 17
 
-
+int duplicate_id=0;
 char USERS_JSON[30] ="user_data.json";
 struct user_record{
     char usr_hash[USER_HASH_SIZE];
@@ -122,6 +123,23 @@ const char* Decode(const char* encrypted_msg)
 
 void add_user_to_json(const char * usr, const char* pas)
 {
+    /* lock for writing the json file */
+    struct flock lock;
+    lock.l_type   = F_WRLCK;
+    lock.l_whence = SEEK_SET;
+    lock.l_start  = 0;
+    lock.l_len    = 1;
+    int jsnfd=open(USERS_JSON, O_RDWR);
+    if(jsnfd == -1)
+    {
+        perror("could not open json file \n");
+        return;
+    }
+    if(-1==fcntl(jsnfd, F_SETLKW, &lock))
+    {
+        printf("could not lock \n");
+        return;
+    }
     /* creating the new user */
     JSON_Value* new_user = json_value_init_object();
     json_object_set_string(json_object(new_user), "name", usr);
@@ -138,20 +156,58 @@ void add_user_to_json(const char * usr, const char* pas)
     users_info=json_value_init_object();
     json_object_set_value(json_object(users_info), "users", val);
     json_serialize_to_file_pretty(users_info, USERS_JSON);
+    close(jsnfd);
 
 }
 
 void init_json()
 {
+      /* lock for writing the json file */
+    struct flock lock;
+    lock.l_type   = F_WRLCK;
+    lock.l_whence = SEEK_SET;
+    lock.l_start  = 0;
+    lock.l_len    = 1;
+    int jsnfd=open(USERS_JSON, O_RDWR);
+    if(jsnfd == -1)
+    {
+        perror("could not open json file \n");
+        return;
+    }
+    if(-1==fcntl(jsnfd, F_SETLK, &lock))
+    {
+        /* someone else will initialize it */
+        return;
+    }
+
     JSON_Value* val=json_value_init_array();
     JSON_Value* users_info=json_value_init_object();
     json_object_set_value(json_object(users_info), "users", val);
     json_serialize_to_file_pretty(users_info, USERS_JSON);
+    close(jsnfd);
 
 }
 
 int get_user_from_json(const char* usr_hash, struct user_record *user)
 {
+    /* lock for writing the json file */
+    struct flock lock;
+    lock.l_type   = F_RDLCK;
+    lock.l_whence = SEEK_SET;
+    lock.l_start  = 0;
+    lock.l_len    = 1;
+    int jsnfd=open(USERS_JSON, O_RDWR);
+    if(jsnfd == -1)
+    {
+        perror("could not open json file \n");
+        return -1;
+    }
+    if(-1==fcntl(jsnfd, F_SETLKW, &lock))
+    {
+        printf("could not lock \n");
+        return -1;
+    }
+
     JSON_Value* users_info=json_parse_file(USERS_JSON);
     JSON_Array* users_array=json_object_get_array(json_object(users_info), "users");
     
@@ -172,10 +228,11 @@ int get_user_from_json(const char* usr_hash, struct user_record *user)
             strncpy(user->usr_hash, usr_hash, USER_HASH_SIZE);
             strncpy(user->perm, 
                     json_object_get_string(json_object(found_user), "permissions"), 3);
-            
+            close(jsnfd);
             return 0;
         }
     }
+    close(jsnfd);
     return -1;
 
 }
@@ -187,7 +244,7 @@ void read_input(char* buffer, int size)
     /* remove \n character */
 }
 
-int HandleSignup(int client_connection)
+int HandleSignup(int client_connection, char* usernamehash)
 {
     int signal;
     perror("user wants to sign up \n");
@@ -225,7 +282,6 @@ int HandleSignup(int client_connection)
     signal=SGNUP_SUCC;
     write(client_connection, &signal, sizeof(int));
     return 0;
-
 
 }
 int HandleLogin(int client_connection)
@@ -315,7 +371,7 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
     signal=INCOMING_DATA;
     write(client_connection, &signal, sizeof(int));
 
-    write(client_connection, dirname, 30); /* send dirname */
+    write(client_connection, dirname, DIRLEN); /* send dirname */
 
     struct dirent* fidir;
     fidir=readdir(dir);
@@ -326,7 +382,7 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
         {
             signal=INCOMING_DATA;
             write(client_connection, &signal, sizeof(int));
-            write(client_connection, fidir->d_name, 50);
+            write(client_connection, fidir->d_name, DIRLEN);
             /* make the path to get the size */
             //stat(dirpath, &st);
             //write(client_connection, &st.st_size, sizeof(int));
@@ -344,7 +400,7 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
 
 int HandleNavigation(int client_connection, char* path, char name[30])
 {
-    if(read(client_connection, name, 30) <= 0)
+    if(read(client_connection, name, DIRLEN) <= 0)
         {
             perror("no more \n");
             return -1;
@@ -445,43 +501,121 @@ int SendFile(int client_connection, char* path)
     bzero(buffer, 4096);
     off_t offset=0;
 
-    int signal=SENDING;
+    struct flock lock;
+    lock.l_type=F_RDLCK;
+    lock.l_whence=SEEK_CUR;
+    lock.l_start=0;
+    lock.l_len=4096;
+
+    if( -1==fcntl(sentfile, F_SETLKW, &lock))
+    {
+        printf("lacat nereusit 1 \n");
+        return -1;
+    }
+
     while(count = sendfile(client_connection,sentfile,&offset,4096)>0) 
     { 
-        write(client_connection, &signal, sizeof(int));
         if (count<0)
         {
             perror("errr \n");
             return -1;
         }
+        lock.l_type=F_UNLCK;
+        fcntl(sentfile, F_SETLKW, &lock);
+        lock.l_type=F_RDLCK;
+        if( -1==fcntl(sentfile, F_SETLKW, &lock))
+        {
+            printf("lacat nereusit 2 \n");
+            return -1;
+        }
+
     }
     perror("done sending \n");
     close (sentfile);
     trimback(path);
     return 0;
 }
-// int HandleDownload(int client_connection, char* path)
-// {
-//     char filename[DIRLEN];
-//     if (read(client_connection, filename, DIRLEN) <= 0)
-//     {
-//         perror("Error at getting the filename(d) name \n");
-//         return -1;
-//     }
-//     strcat(path, "/");
-//     strcat(path, filename);
-//     printf("%s \n", path);
-//     int signal=0;
 
-//     return 0;
-// }
+int GetFile(int client_connection, char* path)
+{   
+    char filename[DIRLEN];
+    read(client_connection, filename, DIRLEN);
+    strcat(path, "/"); strcat(path, filename);
+    int signal=0;
+    printf("%s \n", path);
+    if(access(path, F_OK) != -1)
+    {
+        trimback(path);
+        char id[6];
+        sprintf(id, "/(%d)", duplicate_id++);
+        strcat(path, id); strcat(path, filename);
+    }
+	int getfile=open(path, O_RDWR|O_TRUNC|O_CREAT, S_IRWXU);
+    if(getfile == -1)
+    {
+        printf("eroare la creare \n"); 
+        {
+            trimback(path);
+            signal=STOP_DWNLD;
+            write(client_connection, &signal, sizeof(int));
+            return -1;
+        }
+    }
+
+    printf("no errors \n");
+    trimback(path);
+    signal=OK;
+    write(client_connection, &signal, sizeof(int));
+
+    unsigned char buffer[4096];
+	bzero(buffer, 4096);
+	int count=0;
+
+	printf("starting to transfer... \n");
+    sleep(1);
+    struct flock lock;
+    lock.l_type=F_WRLCK;
+    lock.l_whence=SEEK_CUR;
+    lock.l_start=0;
+    lock.l_len=4096;
+    if( -1==fcntl(getfile, F_SETLKW, &lock))
+    {
+        printf("lacat nereusit 1 \n");
+        return -1;
+    }
+    while ((count = recv(client_connection, buffer, sizeof buffer, MSG_DONTWAIT)) > 0)
+  	{
+    	if ( (write(getfile, buffer, count)) < 0)
+    	{
+     		perror("write"); //  at least
+      		return -1;
+    	}
+        if (count<0)
+  		{
+   			perror("[server] reading \n");
+            return -1;
+ 	 	}
+        lock.l_type=F_UNLCK;
+        fcntl(getfile, F_SETLKW, &lock);
+        lock.l_type=F_WRLCK;
+        if( -1==fcntl(getfile, F_SETLKW, &lock))
+        {
+            printf("lacat nereusit 2 \n");
+            return -1;
+        }
+ 	}
+    printf("reached here \n");
+    close(getfile);
+    return 0;
+}
+
 int Handle_ls(int client_connection)
 {
 
     char path[PATH_SZ]=FILESYS;
     InspectDir(client_connection, FILESYS, path);
     int cmd_id=0;
-    char current_name[30];
+    char current_name[DIRLEN];
     while(1)
     {
         if(read(client_connection, &cmd_id, sizeof(int))<=0)
@@ -507,6 +641,11 @@ int Handle_ls(int client_connection)
             SendFile(client_connection, path);
             continue;
         }
+        if (cmd_id==UPLFILE)
+        {
+            GetFile(client_connection, path);
+            continue;
+        }
         
     }
 
@@ -523,16 +662,6 @@ void end_server()
     close(sd);
     exit(1);
 }
-// int HandleServerTerminal()
-// {
-//     char command[CMD_SIZE];
-//     while(1)
-//     {
-//         printf("SERVER> "); fflush(stdout);
-//         read_input(command, CMD_SIZE);
-//     }
-//     return 0;
-// }
 int main()
 {
     signal(SIGTSTP, end_server); /* for ctrl + z */
@@ -544,13 +673,6 @@ int main()
     {
         init_json();
     }
-
-    // int server_terminal=fork();
-    // if (server_terminal==0)
-    // {
-    //     HandleServerTerminal();
-    //     return 0;
-    // }
 
     /* init user info base */
     struct sockaddr_in server_main;	// server main socket

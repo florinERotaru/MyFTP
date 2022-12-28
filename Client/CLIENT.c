@@ -10,6 +10,11 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
+
+
 extern int errno;
 
 /* signal */
@@ -28,7 +33,7 @@ extern int errno;
 #define LGN_SIZE 100
 #define USER_INFO_SIZE 100
 #define USER_HASH_SIZE 200
-#define DIRLEN 50
+#define DIRLEN 200
 
 /* command codes */
 #define LOGIN_REQ 0
@@ -48,6 +53,9 @@ extern int errno;
 #define REACHED_ROOT 14
 #define NEW_DIR 15
 #define GETFILE 16
+#define UPLFILE 17
+
+
 
 /* error codes */
 #define SERVER_DOWN -2
@@ -293,8 +301,8 @@ int ReceiveEntryList(int sd)
         return -1;
     } /* confirm that transmission will start */
 
-    char* dirname=(char*)calloc(30, sizeof(char));
-    if(read(sd, dirname, 30) <= 0)
+    char* dirname=(char*)calloc(DIRLEN, sizeof(char));
+    if(read(sd, dirname, DIRLEN) <= 0)
     {
         printf("Error at retreiving dirnam \n");
         return -1;
@@ -309,12 +317,12 @@ int ReceiveEntryList(int sd)
 
     free(dirname);
     
-    char entryname[50];
+    char entryname[DIRLEN];
     //int size=0;
     read(sd, &signal, sizeof(int));
     while(signal==INCOMING_DATA)
     {
-        read(sd, entryname, 50);
+        read(sd, entryname, DIRLEN);
         //read(sd, &size, sizeof(int));
         printf("   %s", entryname);
         for(int i=0; i<40-strlen(entryname); i++)
@@ -365,6 +373,31 @@ int HandleMkdir(int sd, char* command)
 int GetFile(int sd, char* filename)
 {
     int signal=0;
+    struct stat statbuf;
+    if (stat(filename, &statbuf) == 0)
+    {
+        if(statbuf.st_size != 0)
+        {
+            printf("~~~Overwrite the file? (y/n) \n");
+            char answ;
+            do
+            {
+                printf("-->>y/n: "); fflush(stdout);
+                scanf("%c", &answ);
+                fgetc(stdin);
+
+            }while(answ != 'y' && answ!= 'n');
+
+            if (answ == 'n')
+            {
+                signal=STOP_DWNLD;
+                write(sd, &signal, sizeof(int));
+                return -1;      /* send not ok to server */
+            }
+            
+        }
+    }
+    
 	int newfile=open(filename, O_RDWR|O_TRUNC|O_CREAT, S_IRWXU);
     if(newfile==-1)
     {
@@ -372,7 +405,7 @@ int GetFile(int sd, char* filename)
         close(newfile);
         signal=STOP_DWNLD;
         write(sd, &signal, sizeof(int));
-        return -1;      /* send ok to server */
+        return -1;      /* send not ok to server */
     }
     signal=OK;
     write(sd, &signal, sizeof(int));
@@ -384,7 +417,7 @@ int GetFile(int sd, char* filename)
     if(signal == STOP_DWNLD)
     {
         printf("~~~No such file in the database. \n");
-        //remove(filename);
+        //remove(filename); /*bug*/
         close(newfile);
         return -1;      /* get ok from server*/
     }
@@ -394,10 +427,9 @@ int GetFile(int sd, char* filename)
 	int count=0;
 
 	printf("starting to transfer... \n");
-    while ((count = recv(sd, buffer, sizeof buffer, 0)) > 0)
+    sleep(1);
+    while ((count = recv(sd, buffer, sizeof buffer, MSG_DONTWAIT)) > 0)
   	{
-        // printf("%d \n", count);
-        // perror(" ");
     	if ( (write(newfile, buffer, count)) < 0)
     	{
      		perror("write"); //  at least
@@ -408,16 +440,7 @@ int GetFile(int sd, char* filename)
    			perror("[server] reading \n");
             return -1;
  	 	}
-        
-        signal=0;
-        read(client_connection, &signal, sizeof(int));
-        if (signal != SENDING)
-        {
-            return -1;
-        }
-
-
-       
+        printf("%d \n", count);
  	}
     printf("reached here \n");
     close(newfile);
@@ -433,7 +456,53 @@ int HandleDownload(int sd, char* command)
     }
     SendCommand(sd, GETFILE);
     GetFile(sd, filename);
+    return 0;
+}
 
+int SendFile(int sd, char* filename, int sentfile)
+{
+    write(sd, filename, DIRLEN);
+    int signal=0;
+    read(sd, &signal, sizeof(int));
+    if(signal == STOP_DWNLD)
+    {
+        printf("~~~Error at uploading. \n");
+
+    }
+    int count;
+    unsigned char buffer[4096];
+    bzero(buffer, 4096);
+    off_t offset=0;
+    while(count = sendfile(sd,sentfile,&offset,4096)>0) 
+    { 
+        if (count<0)
+        {
+            perror("errr \n");
+            return -1;
+        }
+    }
+
+
+    return 0;
+}
+
+
+int HandleUpload(int sd, char* command)
+{
+    char filename[DIRLEN];
+    if(GetDirArg(command, filename) == -1)
+    {
+        printf("syntax error - get syntax: upload <filename> \n");
+        return -1;
+    }
+    int sentfile=open(filename, O_RDWR);
+    if (sentfile == -1)
+    {
+        printf("~~~No such local file. \n");
+        return -1;
+    }
+    SendCommand(sd, UPLFILE);
+    SendFile(sd,filename, sentfile);
     return 0;
 }
 int Handle_ls(int sd)
@@ -460,9 +529,9 @@ int Handle_ls(int sd)
     ReceiveEntryList(sd);
     while(1)
     {
-        char command[30];
+        char command[CMD_SIZE];
         printf("[filesystem]>"); fflush(stdout);
-        read_input(command, 30);
+        read_input(command, CMD_SIZE);
         if(strcmp(command, "done")==0)
         {
             SendCommand(sd, DONE_F);
@@ -476,6 +545,11 @@ int Handle_ls(int sd)
         if(strstr(command, "get"))
         {
             HandleDownload(sd, command);
+            continue;
+        }
+        if(strstr(command, "upload"))
+        {
+            HandleUpload(sd, command);
             continue;
         }
         SendCommand(sd, NAVIGATE);
