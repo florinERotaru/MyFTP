@@ -54,6 +54,7 @@ extern int errno;
 #define NEW_DIR 15
 #define GETFILE 16
 #define UPLFILE 17
+#define NO_PERM 18
 
 
 
@@ -351,11 +352,19 @@ int HandleMkdir(int sd, char* command)
         return -1;
     }
     SendCommand(sd, NEW_DIR);
+    int signal=0;
+    read(sd, &signal, sizeof(int));
+    if(signal==NO_PERM)
+    {
+        printf("~~~User has no write permissions. \n");
+        return -1;
+    }
+
     write(sd, dirname, DIRLEN);
     /* sent dir. name*/
 
     /* check status: */
-    int signal=0;
+    signal=0;
     read(sd, &signal, sizeof(int));
     if(signal==ERRMKDIR)
     {
@@ -489,6 +498,7 @@ int SendFile(int sd, char* filename, int sentfile)
 
 int HandleUpload(int sd, char* command)
 {
+    
     char filename[DIRLEN];
     if(GetDirArg(command, filename) == -1)
     {
@@ -502,6 +512,14 @@ int HandleUpload(int sd, char* command)
         return -1;
     }
     SendCommand(sd, UPLFILE);
+
+    int signal=0;
+    read(sd, &signal, sizeof(int));
+    if(signal==NO_PERM)
+    {
+        printf("~~~User has no write permissions. \n");
+        return -1;
+    }
     SendFile(sd,filename, sentfile);
     return 0;
 }

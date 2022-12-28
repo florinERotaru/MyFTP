@@ -64,6 +64,8 @@ extern int errno;
 #define NEW_DIR 15
 #define GETFILE 16
 #define UPLFILE 17
+#define NO_PERM 18
+
 
 int duplicate_id=0;
 char USERS_JSON[30] ="user_data.json";
@@ -157,7 +159,6 @@ void add_user_to_json(const char * usr, const char* pas)
     json_object_set_value(json_object(users_info), "users", val);
     json_serialize_to_file_pretty(users_info, USERS_JSON);
     close(jsnfd);
-
 }
 
 void init_json()
@@ -244,7 +245,7 @@ void read_input(char* buffer, int size)
     /* remove \n character */
 }
 
-int HandleSignup(int client_connection, char* usernamehash)
+int HandleSignup(int client_connection, struct user_record* new_user)
 {
     int signal;
     perror("user wants to sign up \n");
@@ -277,14 +278,18 @@ int HandleSignup(int client_connection, char* usernamehash)
         return -1;
     }
 
+    strncpy(new_user->pass_hash, pass_hash, USER_HASH_SIZE);
+    strncpy(new_user->usr_hash, usr_hash, 3);
+    strncpy(new_user->perm, "rw", 3);
     add_user_to_json(usr_hash, pass_hash);
+    
     
     signal=SGNUP_SUCC;
     write(client_connection, &signal, sizeof(int));
     return 0;
 
 }
-int HandleLogin(int client_connection)
+int HandleLogin(int client_connection, struct user_record* check_user)
 {
     char usr_hash[USER_HASH_SIZE];
     char pass_hash[USER_HASH_SIZE];
@@ -309,16 +314,15 @@ int HandleLogin(int client_connection)
 
     /* check if login/password is right */
 
-    struct user_record check_user;
     int signal=0;
-    if (get_user_from_json(usr_hash, &check_user) == -1)
+    if (get_user_from_json(usr_hash, check_user) == -1)
     {
         signal=INCRCT_DATA;
         write(client_connection, &signal, sizeof(int));
         return -1;
     } /* check login */
 
-    if(strcmp(check_user.pass_hash, pass_hash) !=0 ) 
+    if(strcmp(check_user->pass_hash, pass_hash) !=0 ) 
     {
         signal=INCRCT_DATA;
         write(client_connection, &signal, sizeof(int));
@@ -370,7 +374,6 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
     /* let the client know that all is ok*/
     signal=INCOMING_DATA;
     write(client_connection, &signal, sizeof(int));
-
     write(client_connection, dirname, DIRLEN); /* send dirname */
 
     struct dirent* fidir;
@@ -398,52 +401,52 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
 
 }
 
-int HandleNavigation(int client_connection, char* path, char name[30])
+int HandleNavigation(int client_connection, char* path, char* name)
 {
     if(read(client_connection, name, DIRLEN) <= 0)
+    {
+        perror("no more \n");
+        return -1;
+    }
+    if(strlen(name)==0 || name[0]=='/' 
+                            || 
+                            (strlen(name) == 1 &&
+                            !isalpha(name[0]) && 
+                            !isdigit(name[0]))
+                            )/* blank space or action code */
+    {
+        int signal=INV_PATH;
+        write(client_connection, &signal, sizeof(int));
+        return -1;
+    }
+    if(strcmp(name, "back")==0)
+    {
+        if(strcmp(path, FILESYS)==0)
         {
-            perror("no more \n");
-            return -1;
-        }
-        if(strlen(name)==0 || name[0]=='/' 
-                                || 
-                                (strlen(name) == 1 &&
-                                !isalpha(name[0]) && 
-                                !isdigit(name[0]))
-                                )/* blank space or action code */
-        {
-            int signal=INV_PATH;
+            int signal=REACHED_ROOT;
             write(client_connection, &signal, sizeof(int));
             return -1;
         }
-        if(strcmp(name, "back")==0)
-        {
-            if(strcmp(path, FILESYS)==0)
-            {
-                int signal=REACHED_ROOT;
-                write(client_connection, &signal, sizeof(int));
-                return -1;
-            }
-            trimback(path);
-        }
-        else
-        {
-            strcat(path, "/");
-            strcat(path, name);
-        }
-        if(strcmp(name, "menu")==0)
-        {
-            return -1;
-        }
-        
-        if (InspectDir(client_connection, name, path) != 0)
-        {
-            trimback(path);
-        }
+        trimback(path);
+    }
+    else
+    {
+        strcat(path, "/");
+        strcat(path, name);
+    }
+    if(strcmp(name, "menu")==0)
+    {
+        return -1;
+    }
+    
+    if (InspectDir(client_connection, name, path) != 0)
+    {
+        trimback(path);
+    }
     return 0;
 }
 
-int HandleMkdir(int client_connection, char* path, char current_name[30])
+int HandleMkdir(int client_connection, char* path, char current_name[DIRLEN])
 {
     char dirname[DIRLEN];
     if (read(client_connection, dirname, DIRLEN) <= 0)
@@ -609,9 +612,8 @@ int GetFile(int client_connection, char* path)
     return 0;
 }
 
-int Handle_ls(int client_connection)
+int Handle_ls(int client_connection, struct user_record *current_user)
 {
-
     char path[PATH_SZ]=FILESYS;
     InspectDir(client_connection, FILESYS, path);
     int cmd_id=0;
@@ -633,6 +635,16 @@ int Handle_ls(int client_connection)
         }
         if (cmd_id==NEW_DIR)
         {
+            int signal=0;
+            if(strcmp(current_user->perm, "rw")!=0 )
+            {
+                signal=NO_PERM;
+                write(client_connection, &signal, sizeof(int));
+                continue;
+            }
+            signal=OK;
+            write(client_connection, &signal, sizeof(int));
+
             HandleMkdir(client_connection, path, current_name);
             continue;
         }
@@ -643,6 +655,16 @@ int Handle_ls(int client_connection)
         }
         if (cmd_id==UPLFILE)
         {
+            int signal=0;
+            if(strcmp(current_user->perm, "rw")!=0 )
+            {
+                signal=NO_PERM;
+                write(client_connection, &signal, sizeof(int));
+                continue;
+            }
+            signal=OK;
+            write(client_connection, &signal, sizeof(int));
+
             GetFile(client_connection, path);
             continue;
         }
@@ -703,7 +725,6 @@ int main()
     }    
     
     printf("Server is up and running, awaiting users on PORT %d \n", PORT);
-    
     while(1)
     {
         int clients_length=sizeof(server_to_client);
@@ -723,6 +744,7 @@ int main()
             //children; serving the client
             close(sd);
             int CONNECTED=0;
+            struct user_record current_user;
             while(1)
             {
 
@@ -743,7 +765,7 @@ int main()
                     {
                         continue;
                     }
-                    if(HandleLogin(client_connection)==0)
+                    if(HandleLogin(client_connection, &current_user)==0)
                     {
                         CONNECTED=1;
                     }
@@ -759,7 +781,7 @@ int main()
                     {
                         continue;
                     }
-                    if(HandleSignup(client_connection) == 0)
+                    if(HandleSignup(client_connection, &current_user) == 0)
                     {
                         CONNECTED=1;
                     }
@@ -776,7 +798,7 @@ int main()
                         continue;
                     }
                     printf("User wants to ls \n");
-                    Handle_ls(client_connection);
+                    Handle_ls(client_connection, &current_user);
                     continue;
                 }
                 if(cmd_id==DISCON)

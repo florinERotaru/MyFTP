@@ -1,113 +1,23 @@
 {
     "users": [
         {
-            "name": "6FFE",
-            "password": "6FFE",
-            "permissions": "rw"
+            "name": "66060303F705",
+            "password": "32FE0002",
+            "permissions": "r"
         },
         {
-            "name": "68FD0DFD",
-            "password": "64FD18",
-            "permissions": "rw"
-        },
-        {
-            "name": "68000000",
-            "password": "6800",
-            "permissions": "rw"
-        },
-        {
-            "name": "74FBFE",
-            "password": "74FB",
-            "permissions": "rw"
-        },
-        {
-            "name": "6F0000",
-            "password": "6F00",
-            "permissions": "rw"
-        },
-        {
-            "name": "3400",
-            "password": "3400",
-            "permissions": "rw"
-        },
-        {
-            "name": "6A0503EF",
-            "password": "62FF0BF7FE0D",
-            "permissions": "rw"
-        },
-        {
-            "name": "610CF406FEFC0BF5",
+            "name": "6405F80DF3",
             "password": "310101",
             "permissions": "rw"
         },
         {
-            "name": "6400",
-            "password": "6400",
-            "permissions": "rw"
-        },
-        {
-            "name": "610CFA",
+            "name": "730000000000",
             "password": "310101",
             "permissions": "rw"
         },
         {
-            "name": "66",
-            "password": "73F1",
-            "permissions": "rw"
-        },
-        {
-            "name": "\u0006",
-            "password": "\u0005",
-            "permissions": "rw"
-        },
-        {
-            "name": "\u0005",
-            "password": "\u0006",
-            "permissions": "rw"
-        },
-        {
-            "name": "6A0503EFD1",
+            "name": "66060303F7",
             "password": "310101",
-            "permissions": "rw"
-        },
-        {
-            "name": "70000000",
-            "password": "700000",
-            "permissions": "rw"
-        },
-        {
-            "name": "610BF5030505",
-            "password": "3001",
-            "permissions": "rw"
-        },
-        {
-            "name": "73F10F",
-            "password": "640F",
-            "permissions": "rw"
-        },
-        {
-            "name": "630CFF06BD",
-            "password": "70F111FDFDF5D0",
-            "permissions": "rw"
-        },
-        {
-            "name": "70F111FDFDF5D0",
-            "password": "\u0010",
-            "permissions": "rw"
-        },
-        {
-            "name": "630CFF06C0",
-            "password": "70F111FDFDF5D0",
-            "permissions": "rw"
-        },
-        {
-            "name": "630CFF06BE",
-            "password": "70F111FDFDF5D0",
-            "permissions": "rw"
-        },
-        {
-            "name": "630CFF06BF",
-            "password": "70F111FDFDF5D0",
             "permissions": "rw"
         }
     ]
