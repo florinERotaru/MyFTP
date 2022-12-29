@@ -33,7 +33,7 @@ extern int errno;
 #define LGN_SIZE 100
 #define USER_INFO_SIZE 100
 #define USER_HASH_SIZE 200
-#define DIRLEN 200
+#define DIRLEN 100
 
 /* command codes */
 #define LOGIN_REQ 0
@@ -74,7 +74,13 @@ const char* Encode(const char* decrypted_msg)
     }
     return encrypted_message;
 }  
+void PrintInstructions()
+{
+    printf("    In order to interact with the server, sign in to your account or sign up if you don't have one. \n ");
+    printf("('login <username>' OR 'sign up') \n");
+    printf("    Once in your account, use 'seefiles' to see, download or upload files. \n");
 
+}
 int SendCommand( int socket_des, int COMMAND_ID)
 {
     if (write(socket_des, &COMMAND_ID, sizeof(int))<=0)
@@ -407,6 +413,7 @@ int GetFile(int sd, char* filename)
         }
     }
     
+    printf("%s \n", filename);
 	int newfile=open(filename, O_RDWR|O_TRUNC|O_CREAT, S_IRWXU);
     if(newfile==-1)
     {
@@ -436,9 +443,15 @@ int GetFile(int sd, char* filename)
 	int count=0;
 
 	printf("starting to transfer... \n");
+    /* send the size to the receiver */
     sleep(1);
-    while ((count = recv(sd, buffer, sizeof buffer, MSG_DONTWAIT)) > 0)
+    off_t recvsize=0;
+    read(sd, &recvsize, sizeof(off_t));
+    printf("%ld \n", recvsize);
+    off_t sum=0;
+    while ((count = read(sd, buffer, sizeof buffer)) > 0)
   	{
+        sum+=count;
     	if ( (write(newfile, buffer, count)) < 0)
     	{
      		perror("write"); //  at least
@@ -449,7 +462,11 @@ int GetFile(int sd, char* filename)
    			perror("[server] reading \n");
             return -1;
  	 	}
-        printf("%d \n", count);
+        if (sum >= recvsize)
+        {
+            break;
+        }
+        
  	}
     printf("reached here \n");
     close(newfile);
@@ -482,6 +499,12 @@ int SendFile(int sd, char* filename, int sentfile)
     unsigned char buffer[4096];
     bzero(buffer, 4096);
     off_t offset=0;
+    off_t sendsize=0;
+    struct stat statbuf;
+    stat(filename, &statbuf);
+    sendsize=statbuf.st_size;
+    write(sd, &sendsize, sizeof(off_t));
+    sleep(1);
     while(count = sendfile(sd,sentfile,&offset,4096)>0) 
     { 
         if (count<0)
@@ -532,6 +555,7 @@ int Handle_ls(int sd)
         return -1;
     }
     int CONNECTED;
+    sleep(1);
     if(read(sd, &CONNECTED, sizeof(int))<=0)
     {
         perror("problem at receiving conn \n");
@@ -571,7 +595,8 @@ int Handle_ls(int sd)
             continue;
         }
         SendCommand(sd, NAVIGATE);
-        write(sd, command, 30);
+        write(sd, command, CMD_SIZE);
+        sleep(1);
         ReceiveEntryList(sd);
     }
     return 0;
@@ -710,6 +735,13 @@ int main(int argc, char* argv[])
             close(sd);
             return 0;
         }
+
+        if(strcmp(command, "cmds ")==0 || strcmp(command, "cmds")==0)
+        {
+            PrintInstructions();
+            continue;
+        }
+        printf("~~~Unknown command. Run'cmds' for instructions. \n");
     }
 
     return 0;

@@ -19,6 +19,11 @@
             "name": "66060303F7",
             "password": "310101",
             "permissions": "rw"
+        },
+        {
+            "name": "70FFFD03FFFB0C",
+            "password": "3203FF",
+            "permissions": "rw"
         }
     ]
 }

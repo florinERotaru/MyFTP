@@ -20,7 +20,7 @@
 
 
 /* setting a PORT */
-#define PORT 9010
+#define PORT 9003
 
 
 extern int errno;
@@ -41,8 +41,8 @@ extern int errno;
 #define LGN_SIZE 100
 #define USER_INFO_SIZE 100
 #define USER_HASH_SIZE 200
-#define PATH_SZ 200
-#define DIRLEN 200
+#define PATH_SZ 100
+#define DIRLEN 100
 
 
 /* command codes */
@@ -336,8 +336,8 @@ int HandleLogin(int client_connection, struct user_record* check_user)
 
 char* revv(const char* accept)
 {
-    char *res=(char*)calloc(200, sizeof(char));
-    strncpy(res, accept, 200);
+    char *res=(char*)calloc(DIRLEN, sizeof(char));
+    strncpy(res, accept, DIRLEN);
     char * c1=res;
     char * c2=res+strlen(res)-1;
     while( c1 < c2)
@@ -373,7 +373,8 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
     }
     /* let the client know that all is ok*/
     signal=INCOMING_DATA;
-    write(client_connection, &signal, sizeof(int));
+    int t=write(client_connection, &signal, sizeof(int));
+    printf("cod trimitere t%d \n", t);
     write(client_connection, dirname, DIRLEN); /* send dirname */
 
     struct dirent* fidir;
@@ -403,7 +404,7 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
 
 int HandleNavigation(int client_connection, char* path, char* name)
 {
-    if(read(client_connection, name, DIRLEN) <= 0)
+    if(read(client_connection, name, CMD_SIZE) <= 0)
     {
         perror("no more \n");
         return -1;
@@ -515,7 +516,13 @@ int SendFile(int client_connection, char* path)
         printf("lacat nereusit 1 \n");
         return -1;
     }
-
+    off_t sendsize=0;
+    struct stat statbuf;
+    stat(path, &statbuf);
+    sendsize=statbuf.st_size;
+    write(client_connection, &sendsize, sizeof(off_t));
+    printf("%ld \n", sendsize);
+    /*  get file size, send it to receiver */
     while(count = sendfile(client_connection,sentfile,&offset,4096)>0) 
     { 
         if (count<0)
@@ -586,8 +593,14 @@ int GetFile(int client_connection, char* path)
         printf("lacat nereusit 1 \n");
         return -1;
     }
-    while ((count = recv(client_connection, buffer, sizeof buffer, MSG_DONTWAIT)) > 0)
+    char errorbuf[100];
+    off_t sum=0;
+    off_t recvsize=0;
+    read(client_connection, &recvsize, sizeof(off_t));
+    printf("%ld \n", recvsize);
+    while ((count = read(client_connection, buffer, sizeof buffer)) > 0)
   	{
+        sum+=count;
     	if ( (write(getfile, buffer, count)) < 0)
     	{
      		perror("write"); //  at least
@@ -606,6 +619,10 @@ int GetFile(int client_connection, char* path)
             printf("lacat nereusit 2 \n");
             return -1;
         }
+        if(sum >= recvsize)
+        {
+            break;
+        }
  	}
     printf("reached here \n");
     close(getfile);
@@ -615,7 +632,8 @@ int GetFile(int client_connection, char* path)
 int Handle_ls(int client_connection, struct user_record *current_user)
 {
     char path[PATH_SZ]=FILESYS;
-    InspectDir(client_connection, FILESYS, path);
+    char first_name[DIRLEN]=FILESYS;
+    InspectDir(client_connection, first_name, path);
     int cmd_id=0;
     char current_name[DIRLEN];
     while(1)
@@ -664,7 +682,6 @@ int Handle_ls(int client_connection, struct user_record *current_user)
             }
             signal=OK;
             write(client_connection, &signal, sizeof(int));
-
             GetFile(client_connection, path);
             continue;
         }
