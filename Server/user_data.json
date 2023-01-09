@@ -24,6 +24,31 @@
             "name": "70FFFD03FFFB0C",
             "password": "3203FF",
             "permissions": "rw"
+        },
+        {
+            "name": "73F10FF1",
+            "password": "6112F1",
+            "permissions": "rw"
+        },
+        {
+            "name": "75FEF20DC0",
+            "password": "650D02",
+            "permissions": "rw"
+        },
+        {
+            "name": "75FEF20DC1",
+            "password": "650D02",
+            "permissions": "rw"
+        },
+        {
+            "name": "6CFD050703E716FEF20DBF",
+            "password": "310101",
+            "permissions": "r"
+        },
+        {
+            "name": "6702FAFECC3BF90602",
+            "password": "31010101",
+            "permissions": "rw"
         }
     ]
 }

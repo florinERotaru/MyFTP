@@ -435,10 +435,7 @@ int HandleNavigation(int client_connection, char* path, char* name)
         strcat(path, "/");
         strcat(path, name);
     }
-    if(strcmp(name, "menu")==0)
-    {
-        return -1;
-    }
+    
     
     if (InspectDir(client_connection, name, path) != 0)
     {

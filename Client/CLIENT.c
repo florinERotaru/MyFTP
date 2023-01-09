@@ -13,8 +13,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/sendfile.h>
-
-
+#include <termios.h>
 extern int errno;
 
 /* signal */
@@ -26,7 +25,7 @@ extern int errno;
 #define ERRMKDIR 35
 #define MKDIRSUCC 36
 #define STOP_DWNLD 37
-#define OK 38
+#define OKAY 38
 
 /* sizes */
 #define CMD_SIZE 100
@@ -79,6 +78,16 @@ void PrintInstructions()
     printf("    In order to interact with the server, sign in to your account or sign up if you don't have one. \n ");
     printf("('login <username>' OR 'sign up') \n");
     printf("    Once in your account, use 'seefiles' to see, download or upload files. \n");
+
+}
+void PrintInstructionsLs()
+{
+    printf("1.  Navigate through the filesystem using $<directoryname> and $back.\n");
+    printf("2.  Download files with $get <filename>.\n");
+    printf("3.  Upload files with $upload <filename>, where <filename> is a local file in your directory.\n");
+    printf("4.  Create your own remote directory with $mkdir <directory_name>.\n");
+    printf("5.  Once done, use $done to return to the account interface.\n");
+    printf("(N.B.) $ indicates the terminal, do not use it in commands.\n");
 
 }
 int SendCommand( int socket_des, int COMMAND_ID)
@@ -201,6 +210,20 @@ void read_input(char* buffer, int size)
     buffer[strlen(buffer)-1]='\0';
     /* remove \n character */
 }
+void read_password(char*buffer, int size)
+{
+    struct termios old_termios, new_termios;
+    tcgetattr(STDIN_FILENO, &old_termios);
+    new_termios = old_termios;
+    new_termios.c_lflag &= ~ECHO;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_termios);
+
+    fgets(buffer, size, stdin);
+    buffer[strlen(buffer)-1]='\0';
+
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_termios);
+
+}
 
 void check_server_state(int sd)
 {
@@ -243,7 +266,9 @@ int HandleLogin(int sd, char* command, char* res_username)
     
     char password[USER_INFO_SIZE];
     printf("Enter password: "); fflush(stdout);
-    read_input(password, USER_INFO_SIZE);
+    //read_input(password, USER_INFO_SIZE);
+    read_password(password, USER_INFO_SIZE);
+    printf("\n");
     if(ValidatePassword(password) == -1)
     {
         cmd=LOGIN_INTRP;
@@ -407,7 +432,7 @@ int GetFile(int sd, char* filename)
             {
                 signal=STOP_DWNLD;
                 write(sd, &signal, sizeof(int));
-                return -1;      /* send not ok to server */
+                return -1;      /* send notOKAYto server */
             }
             
         }
@@ -421,9 +446,9 @@ int GetFile(int sd, char* filename)
         close(newfile);
         signal=STOP_DWNLD;
         write(sd, &signal, sizeof(int));
-        return -1;      /* send not ok to server */
+        return -1;      /* send notOKAYto server */
     }
-    signal=OK;
+    signal=OKAY;
     write(sd, &signal, sizeof(int));
 
     write(sd, filename, DIRLEN); /* sent requested file name */
@@ -435,7 +460,7 @@ int GetFile(int sd, char* filename)
         printf("~~~No such file in the database. \n");
         //remove(filename); /*bug*/
         close(newfile);
-        return -1;      /* get ok from server*/
+        return -1;      /* getOKAYfrom server*/
     }
 
     unsigned char buffer[4096];
@@ -594,6 +619,11 @@ int Handle_ls(int sd)
             HandleUpload(sd, command);
             continue;
         }
+        if(strcmp(command, "cmds ")==0 || strcmp(command, "cmds")==0)
+        {
+            PrintInstructionsLs();
+            continue;
+        }
         SendCommand(sd, NAVIGATE);
         write(sd, command, CMD_SIZE);
         sleep(1);
@@ -626,11 +656,15 @@ int HandleSignup(int sd, char* final_username)
         do
         {
             printf("Set Password:"); fflush(stdout);
-            read_input(password, USER_INFO_SIZE);
+            //read_input(password, USER_INFO_SIZE);
+            read_password(password, USER_INFO_SIZE);
+            printf("\n");
         } while (ValidatePassword(password) == -1);
         printf("Confirm Password:"); fflush(stdout);
-        read_input(second_password, USER_INFO_SIZE);
 
+        //read_input(second_password, USER_INFO_SIZE);
+        read_password(second_password, USER_INFO_SIZE);
+        printf("\n");
     }while ( (confirm_password(password, second_password)) == -1);    
      /* account data validated */
 
@@ -688,7 +722,6 @@ int main(int argc, char* argv[])
         char command[CMD_SIZE];
         printf("%s>", client); fflush(stdout);
         read_input(command, CMD_SIZE);
-        perror(" \n");
         /*interpret command */
         if (strstr(command, "login"))
         {
