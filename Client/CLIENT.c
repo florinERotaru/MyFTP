@@ -493,7 +493,7 @@ int GetFile(int sd, char* filename)
         }
         
  	}
-    printf("reached here \n");
+    printf("download finished \n");
     close(newfile);
     return 0;
 }

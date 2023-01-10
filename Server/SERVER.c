@@ -20,7 +20,7 @@
 
 
 /* setting a PORT */
-#define PORT 9003
+#define PORT 9002
 
 
 extern int errno;
@@ -248,7 +248,7 @@ void read_input(char* buffer, int size)
 int HandleSignup(int client_connection, struct user_record* new_user)
 {
     int signal;
-    perror("user wants to sign up \n");
+    printf("user wants to sign up \n");
     char usr_hash[USER_HASH_SIZE];
     if( read(client_connection, usr_hash, USER_HASH_SIZE) <= 0)
     {
@@ -294,7 +294,7 @@ int HandleLogin(int client_connection, struct user_record* check_user)
     char usr_hash[USER_HASH_SIZE];
     char pass_hash[USER_HASH_SIZE];
 
-    perror("user wants to log in \n");
+    printf("user wants to log in \n");
 
     int cmd;
     read(client_connection, &cmd, sizeof(int));
@@ -373,8 +373,7 @@ int InspectDir(int client_connection, const char* dirname, char* dirpath)
     }
     /* let the client know that all is ok*/
     signal=INCOMING_DATA;
-    int t=write(client_connection, &signal, sizeof(int));
-    printf("cod trimitere t%d \n", t);
+    write(client_connection, &signal, sizeof(int));
     write(client_connection, dirname, DIRLEN); /* send dirname */
 
     struct dirent* fidir;
@@ -492,7 +491,6 @@ int SendFile(int client_connection, char* path)
         trimback(path);
         return -1;
     }
-    perror("opened \n");
        
     signal=OK;   /* send ok to client */
     write(client_connection, &signal, sizeof(int));
@@ -537,7 +535,6 @@ int SendFile(int client_connection, char* path)
         }
 
     }
-    perror("done sending \n");
     close (sentfile);
     trimback(path);
     return 0;
@@ -621,7 +618,7 @@ int GetFile(int client_connection, char* path)
             break;
         }
  	}
-    printf("reached here \n");
+    printf("finished upload \n");
     close(getfile);
     return 0;
 }
@@ -659,7 +656,7 @@ int Handle_ls(int client_connection, struct user_record *current_user)
             }
             signal=OK;
             write(client_connection, &signal, sizeof(int));
-
+            printf("%s \n", current_name);
             HandleMkdir(client_connection, path, current_name);
             continue;
         }

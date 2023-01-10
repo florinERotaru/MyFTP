@@ -473,7 +473,7 @@ int Handle_ls(int sd)
 
 
     ReceiveEntryList(sd);
-    char command[200]="get Ion-Creanga_Amintiri-din-copilarie.pdf";
+    char command[200]="get carte.pdf";
 
         printf("[filesystem]>"); fflush(stdout);
         if(strcmp(command, "done")==0)
@@ -575,7 +575,7 @@ int main(int argc, char* argv[])
     signal(SIGTSTP, end_conn); /* for ctrl + z */
     signal(SIGINT, end_conn); /* for ctrl + c */  
 
-    char command[256]="login amageala";
+    char command[256]="login florin";
     char res[256];
     HandleLogin(sd, command, res);
     Handle_ls(sd);
